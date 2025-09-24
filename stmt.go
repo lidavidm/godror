@@ -319,10 +319,15 @@ func JSONAsString() Option { return func(o *stmtOptions) { o.jsonAsString = true
 
 const minChunkSize = 1 << 16
 
+type StmtOption interface {
+	Apply(Option)
+}
+
 var _ driver.Stmt = (*statement)(nil)
 var _ driver.StmtQueryContext = (*statement)(nil)
 var _ driver.StmtExecContext = (*statement)(nil)
 var _ driver.NamedValueChecker = (*statement)(nil)
+var _ StmtOption = (*statement)(nil)
 
 type statement struct {
 	ctx context.Context
@@ -344,6 +349,10 @@ type statement struct {
 	sync.Mutex
 }
 type dataGetter func(ctx context.Context, v any, data []C.dpiData) error
+
+func (st *statement) Apply(option Option) {
+	option(&st.stmtOptions)
+}
 
 // Close closes the statement.
 //
