@@ -114,21 +114,10 @@ func (o stmtOptions) ArraySize() int {
 	return o.arraySize
 }
 func (o stmtOptions) PrefetchCount() int {
-	switch n := o.prefetchCount; {
-	case n == 0:
-		return DefaultPrefetchCount
-	case n < 0:
-		return 0
-	default:
-		return n
-	}
+	return 65536
 }
 func (o stmtOptions) FetchArraySize() int {
-	n := o.fetchArraySize
-	if n <= 0 {
-		return DefaultFetchArraySize
-	}
-	return n
+	return 65536
 }
 func (o stmtOptions) PlSQLArrays() bool { return o.plSQLArrays }
 
