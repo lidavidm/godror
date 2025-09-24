@@ -114,10 +114,21 @@ func (o stmtOptions) ArraySize() int {
 	return o.arraySize
 }
 func (o stmtOptions) PrefetchCount() int {
-	return 65536
+	switch n := o.prefetchCount; {
+	case n == 0:
+		return DefaultPrefetchCount
+	case n < 0:
+		return 0
+	default:
+		return n
+	}
 }
 func (o stmtOptions) FetchArraySize() int {
-	return 65536
+	n := o.fetchArraySize
+	if n <= 0 {
+		return DefaultFetchArraySize
+	}
+	return n
 }
 func (o stmtOptions) PlSQLArrays() bool { return o.plSQLArrays }
 
@@ -308,10 +319,15 @@ func JSONAsString() Option { return func(o *stmtOptions) { o.jsonAsString = true
 
 const minChunkSize = 1 << 16
 
+type StmtOption interface {
+	Apply(Option)
+}
+
 var _ driver.Stmt = (*statement)(nil)
 var _ driver.StmtQueryContext = (*statement)(nil)
 var _ driver.StmtExecContext = (*statement)(nil)
 var _ driver.NamedValueChecker = (*statement)(nil)
+var _ StmtOption = (*statement)(nil)
 
 type statement struct {
 	ctx context.Context
@@ -331,6 +347,10 @@ type statement struct {
 	sync.Mutex
 }
 type dataGetter func(ctx context.Context, v interface{}, data []C.dpiData) error
+
+func (st *statement) Apply(option Option) {
+	option(&st.stmtOptions)
+}
 
 // Close closes the statement.
 //
