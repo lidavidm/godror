@@ -73,6 +73,7 @@ type stmtOptions struct {
 	warningAsError     bool
 	noRetry            bool
 	jsonAsString       bool
+	ociAttrs           map[uint32]any
 }
 
 type boolString struct {
@@ -222,6 +223,15 @@ func PrefetchCount(rowCount int) Option {
 		} else {
 			o.prefetchCount = -1
 		}
+	}
+}
+
+func GenericOciAttr(attr uint32, value any) Option {
+	return func(o *stmtOptions) {
+		if o.ociAttrs == nil {
+			o.ociAttrs = make(map[uint32]any)
+		}
+		o.ociAttrs[attr] = value
 	}
 }
 
@@ -768,6 +778,15 @@ func (st *statement) queryContextNotLocked(ctx context.Context, args []driver.Na
 	// set Prefetch Parameters before execute
 	C.dpiStmt_setFetchArraySize(st.dpiStmt, C.uint32_t(st.FetchArraySize()))
 	C.dpiStmt_setPrefetchRows(st.dpiStmt, C.uint32_t(st.PrefetchCount()))
+	for key, v := range st.ociAttrs {
+		switch val := v.(type) {
+		case uint32:
+			u32 := val
+			C.dpiStmt_setOciAttr(st.dpiStmt, C.uint32_t(key), unsafe.Pointer(&u32), C.uint32_t(unsafe.Sizeof(val)))
+		default:
+			return nil, fmt.Errorf("OCI attr %d has unsupported type %T", key, v)
+		}
+	}
 
 	// execute
 	var colCount C.uint32_t
