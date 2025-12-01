@@ -3455,6 +3455,7 @@ func (st *statement) openRows(ctx context.Context, colCount int) (*rows, error) 
 			Size:             ti.clientSizeInBytes,
 			Precision:        ti.precision,
 			Scale:            ti.scale,
+			FsPrecision:      ti.fsPrecision,
 			Nullable:         info.nullOk == 1,
 			ObjectType:       ti.objectType,
 			SizeInChars:      ti.sizeInChars,
@@ -3503,6 +3504,7 @@ type Column struct {
 	Size, SizeInChars, DBSize  C.uint32_t
 	Precision                  C.int16_t
 	Scale                      C.int8_t
+	FsPrecision                C.uint8_t
 	Nullable                   bool
 	DomainAnnotation
 	VectorDimensions C.uint32_t
