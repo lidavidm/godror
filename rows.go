@@ -33,6 +33,14 @@ import (
 	"github.com/godror/godror/slog"
 )
 
+type DpiData C.DpiDataDefinition
+
+type UnsafeRows interface {
+	UnsafeColumns() []Column
+	UnsafeData() (uint64, [][]DpiData)
+	NextBatch() error
+}
+
 var _ = driver.Rows((*rows)(nil))
 var _ = driver.RowsColumnTypeDatabaseTypeName((*rows)(nil))
 var _ = driver.RowsColumnTypeLength((*rows)(nil))
@@ -40,6 +48,7 @@ var _ = driver.RowsColumnTypeNullable((*rows)(nil))
 var _ = driver.RowsColumnTypePrecisionScale((*rows)(nil))
 var _ = driver.RowsColumnTypeScanType((*rows)(nil))
 var _ = driver.RowsNextResultSet((*rows)(nil))
+var _ = UnsafeRows((*rows)(nil))
 
 type rows struct {
 	err       error
@@ -48,11 +57,95 @@ type rows struct {
 	origSt         *statement
 	nextRs         *C.dpiStmt
 	data           [][]C.dpiData
+	unsafeData     [][]DpiData
 	columns        []Column
 	vars           []*C.dpiVar
 	bufferRowIndex C.uint32_t
 	fetched        C.uint32_t
 	fromData       bool
+}
+
+func (r *rows) UnsafeColumns() []Column {
+	return r.columns
+}
+
+func (r *rows) UnsafeData() (uint64, [][]DpiData) {
+	r.unsafeData = make([][]DpiData, len(r.columns))
+	for i := range r.columns {
+		slice := unsafe.SliceData(r.data[i])
+		r.unsafeData[i] = unsafe.Slice((*DpiData)(unsafe.Pointer(slice)), len(r.data[i]))
+	}
+	return uint64(r.fetched), r.unsafeData
+}
+
+func (r *rows) NextBatch() error {
+	// Start the watchdog only once See issue #113 (https://github.com/godror/godror/issues/113)
+	if ctx := r.statement.ctx; ctx != nil {
+		// nil can be present when Next is issued on cursor returned from DB
+		if r.err = ctx.Err(); r.err != nil {
+			return r.err
+		}
+		if _, hasDeadline := r.statement.ctx.Deadline(); hasDeadline {
+			// handle deadline for dpiStmt_fetchRows. context reused from stmt
+			cleanup, err := r.statement.handleDeadline(ctx)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+		}
+	}
+
+	var moreRows C.int
+	var start time.Time
+	maxRows := C.uint32_t(r.statement.FetchArraySize())
+	r.statement.Lock()
+	if debugRowsNext {
+		fmt.Printf("fetching max=%d\n", maxRows)
+		start = time.Now()
+	}
+	err := r.statement.checkExecNoLOT(func() C.int {
+		return C.dpiStmt_fetchRows(r.dpiStmt, maxRows, &r.bufferRowIndex, &r.fetched, &moreRows)
+	})
+	failed := err != nil
+	if debugRowsNext {
+		fmt.Printf("failed=%t bri=%d fetched=%d more=%d data=%d cols=%d dur=%s\n", failed, r.bufferRowIndex, r.fetched, moreRows, len(r.data), len(r.columns), time.Since(start))
+	}
+	r.statement.Unlock()
+	if failed {
+		_ = r.Close()
+		if strings.Contains(err.Error(), "DPI-1039: statement was already closed") {
+			r.err = io.EOF
+		} else {
+			r.err = fmt.Errorf("Next: %w", err)
+		}
+		return r.err
+	}
+	if r.fetched == 0 {
+		_ = r.Close()
+		r.err = io.EOF
+		return r.err
+	}
+	if r.data == nil {
+		r.data = make([][]C.dpiData, len(r.columns))
+		r.unsafeData = make([][]DpiData, len(r.columns))
+
+		for i := range r.columns {
+			var n C.uint32_t
+			var data *C.dpiData
+			if err = r.statement.checkExecNoLOT(func() C.int {
+				return C.dpiVar_getReturnedData(r.vars[i], 0, &n, &data)
+			}); err != nil {
+				return fmt.Errorf("getReturnedData[%d]: %w", i, err)
+			}
+			r.data[i] = unsafe.Slice(data, n)
+
+			slice := unsafe.SliceData(r.data[i])
+			r.unsafeData[i] = unsafe.Slice((*DpiData)(unsafe.Pointer(slice)), n)
+			//fmt.Printf("data %d=%+v\n%+v\n", n, data, r.data[i][0])
+		}
+	}
+
+	return nil
 }
 
 // Columns returns the names of the columns. The number of
@@ -307,73 +400,9 @@ func (r *rows) Next(dest []driver.Value) error {
 	defer runtime.UnlockOSThread()
 
 	if r.fetched == 0 {
-		// Start the watchdog only once See issue #113 (https://github.com/godror/godror/issues/113)
-		if ctx := r.statement.ctx; ctx != nil {
-			// nil can be present when Next is issued on cursor returned from DB
-			if r.err = ctx.Err(); r.err != nil {
-				return r.err
-			}
-			if _, hasDeadline := r.statement.ctx.Deadline(); hasDeadline {
-				// handle deadline for dpiStmt_fetchRows. context reused from stmt
-				cleanup, err := r.statement.handleDeadline(ctx)
-				if err != nil {
-					return err
-				}
-				defer cleanup()
-			}
+		if err := r.NextBatch(); err != nil {
+			return err
 		}
-
-		var moreRows C.int
-		var start time.Time
-		maxRows := C.uint32_t(r.statement.FetchArraySize())
-		r.statement.Lock()
-		if debugRowsNext {
-			fmt.Printf("fetching max=%d\n", maxRows)
-			start = time.Now()
-		}
-		err := r.statement.checkExecNoLOT(func() C.int {
-			return C.dpiStmt_fetchRows(r.dpiStmt, maxRows, &r.bufferRowIndex, &r.fetched, &moreRows)
-		})
-		failed := err != nil
-		if debugRowsNext {
-			fmt.Printf("failed=%t bri=%d fetched=%d more=%d data=%d cols=%d dur=%s\n", failed, r.bufferRowIndex, r.fetched, moreRows, len(r.data), len(r.columns), time.Since(start))
-		}
-		r.statement.Unlock()
-		if failed {
-			if logger != nil {
-				logger.Error("fetch", "error", err)
-			}
-			_ = r.Close()
-			if strings.Contains(err.Error(), "DPI-1039: statement was already closed") {
-				r.err = io.EOF
-			} else {
-				r.err = fmt.Errorf("Next: %w", err)
-			}
-			return r.err
-		}
-		if logger != nil && logger.Enabled(ctx, slog.LevelDebug) {
-			logger.Debug("fetched", "bri", r.bufferRowIndex, "fetched", r.fetched, "moreRows", moreRows, "len(data)", len(r.data), "cols", len(r.columns))
-		}
-		if r.fetched == 0 {
-			_ = r.Close()
-			r.err = io.EOF
-			return r.err
-		}
-		if r.data == nil {
-			r.data = make([][]C.dpiData, len(r.columns))
-			for i := range r.columns {
-				var n C.uint32_t
-				var data *C.dpiData
-				if err = r.statement.checkExecNoLOT(func() C.int {
-					return C.dpiVar_getReturnedData(r.vars[i], 0, &n, &data)
-				}); err != nil {
-					return fmt.Errorf("getReturnedData[%d]: %w", i, err)
-				}
-				r.data[i] = unsafe.Slice(data, n)
-				//fmt.Printf("data %d=%+v\n%+v\n", n, data, r.data[i][0])
-			}
-		}
-
 	}
 	//fmt.Printf("data=%#v\n", r.data)
 
