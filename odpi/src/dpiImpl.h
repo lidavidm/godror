@@ -2358,4 +2358,7 @@ int dpiUtils__setAccessTokenAttributes(void *handle,
 void dpiDebug__initialize(void);
 void dpiDebug__print(const char *format, ...);
 
+typedef dpiDataBuffer DpiDataBuffer;
+typedef struct { int IsNull; DpiDataBuffer Value; } DpiDataDefinition;
+
 #endif
