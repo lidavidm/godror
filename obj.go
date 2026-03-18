@@ -1276,6 +1276,16 @@ func wrapObject(c *conn, objectType *C.dpiObjectType, object *C.dpiObject) (*Obj
 	return o, nil
 }
 
+func getObjectTypeName(t *C.dpiObjectType) (string, error) {
+	var info C.dpiObjectTypeInfo
+	if C.dpiObjectType_getInfo(t, &info) == C.DPI_FAILURE {
+		return "", errors.New("dpiObjectType_getInfo failed")
+	}
+	schema := C.GoStringN(info.schema, C.int(info.schemaLength))
+	name := C.GoStringN(info.name, C.int(info.nameLength))
+	return fmt.Sprintf("%s.%s", schema, name), nil
+}
+
 func (t *ObjectType) init(cache map[string]*ObjectType) error {
 	if t.drv == nil {
 		panic("conn is nil")
