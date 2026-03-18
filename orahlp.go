@@ -290,6 +290,7 @@ type QueryColumn struct {
 	Name                           string
 	Type, Length, Precision, Scale int
 	Nullable                       bool
+	ObjectTypeName                 string
 	//Schema string
 	//CharsetID, CharsetForm         int
 }
@@ -330,6 +331,7 @@ func DescribeQuery(ctx context.Context, db Execer, qry string) ([]QueryColumn, e
 			if precision == 0 && col.FsPrecision != 0 {
 				precision = int(col.FsPrecision)
 			}
+
 			cols[i] = QueryColumn{
 				Name:      col.Name,
 				Type:      int(col.OracleType),
@@ -337,6 +339,15 @@ func DescribeQuery(ctx context.Context, db Execer, qry string) ([]QueryColumn, e
 				Precision: int(precision),
 				Scale:     int(col.Scale),
 				Nullable:  col.Nullable,
+			}
+
+			if col.ObjectType != nil {
+				// Record the object type name as that can be useful downstream (e.g. to identify built in types like SDO_GEOMETRY)
+				name, err := getObjectTypeName(col.ObjectType)
+				if err != nil {
+					return err
+				}
+				cols[i].ObjectTypeName = name
 			}
 		}
 		return nil
