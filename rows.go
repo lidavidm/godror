@@ -79,6 +79,10 @@ func (r *rows) UnsafeData() (uint64, [][]DpiData) {
 }
 
 func (r *rows) NextBatch() error {
+	if r.err != nil {
+		// Make this idempotent in case of EOF or failure
+		return r.err
+	}
 	// Start the watchdog only once See issue #113 (https://github.com/godror/godror/issues/113)
 	if ctx := r.statement.ctx; ctx != nil {
 		// nil can be present when Next is issued on cursor returned from DB
