@@ -328,7 +328,11 @@ func DescribeQuery(ctx context.Context, db Execer, qry string) ([]QueryColumn, e
 		cols = make([]QueryColumn, len(r.columns))
 		for i, col := range r.columns {
 			precision := int(col.Precision)
-			if precision == 0 && col.FsPrecision != 0 {
+			scale := int(col.Scale)
+			if col.OracleType == 2015 { // C.DPI_ORACLE_TYPE_INTERVAL_DS
+				precision = int(col.FsPrecision)
+				scale = int(col.Precision)
+			} else if precision == 0 && col.FsPrecision != 0 {
 				precision = int(col.FsPrecision)
 			}
 
@@ -336,8 +340,8 @@ func DescribeQuery(ctx context.Context, db Execer, qry string) ([]QueryColumn, e
 				Name:      col.Name,
 				Type:      int(col.OracleType),
 				Length:    int(col.Size),
-				Precision: int(precision),
-				Scale:     int(col.Scale),
+				Precision: precision,
+				Scale:     scale,
 				Nullable:  col.Nullable,
 			}
 
