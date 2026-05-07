@@ -2714,6 +2714,65 @@ func TestExecInt64(t *testing.T) {
 	t.Log("num:", num, "str:", str)
 }
 
+func TestImplicitResultSet(t *testing.T) {
+	ctx, cancel := context.WithTimeout(testContext("ImplicitResults"), 10*time.Second)
+	defer cancel()
+
+	conn, err := testDb.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+
+	err = conn.Raw(func(driverConn any) error {
+		conn := driverConn.(driver.Conn)
+		stmt, err := conn.Prepare("DECLARE c SYS_REFCURSOR; BEGIN OPEN c FOR SELECT 1 AS RESULT FROM DUAL; DBMS_SQL.RETURN_RESULT(c); END;")
+		if err != nil {
+			t.Fatalf("failed to prepare statement: %v", err)
+		}
+		defer stmt.Close()
+
+		res, err := stmt.(driver.StmtQueryContext).QueryContext(ctx, nil)
+		if err != nil {
+			t.Fatalf("failed to execute query: %v", err)
+		}
+		rows := res.(driver.RowsNextResultSet)
+
+		rowsSeen := 0
+		for {
+			cols := rows.Columns()
+			vals := make([]driver.Value, len(cols))
+			for {
+				err := rows.Next(vals)
+				if err == io.EOF {
+					break
+				} else if err != nil {
+					t.Fatalf("failed to read row: %v", err)
+				}
+				rowsSeen += 1
+				if vals[0] != godror.Number("1") {
+					t.Fatalf("expected to see 1, but saw %T %v", vals[0], vals[0])
+				}
+			}
+
+			if !rows.HasNextResultSet() {
+				break
+			}
+			err = rows.NextResultSet()
+			if err != nil {
+				t.Fatalf("failed to move to next result set: %v", err)
+			}
+		}
+
+		if rowsSeen != 1 {
+			t.Fatalf("expected to see 1 row, but saw %d", rowsSeen)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed: %v", err)
+	}
+}
+
 func TestImplicitResults(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(testContext("ImplicitResults"), 10*time.Second)
