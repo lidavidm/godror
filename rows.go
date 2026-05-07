@@ -124,7 +124,9 @@ func (r *rows) NextBatch() error {
 		return r.err
 	}
 	if r.fetched == 0 {
-		_ = r.Close()
+		if !r.HasNextResultSet() {
+			_ = r.Close()
+		}
 		r.err = io.EOF
 		return r.err
 	}
