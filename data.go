@@ -391,6 +391,25 @@ type IntervalYM struct {
 	Years, Months int
 }
 
+// NullIntervalYM is a nullable IntervalYM with an explicit Valid flag.
+// Unlike IntervalYM, a zero-valued NullIntervalYM{Valid: true} is not treated as NULL.
+type NullIntervalYM struct {
+	IntervalYM
+	Valid bool
+}
+
+// IntervalDS holds the component fields of an INTERVAL DAY TO SECOND value.
+// Using component fields avoids the ambiguity of time.Duration where 0 == NULL.
+type IntervalDS struct {
+	Days, Hours, Minutes, Seconds, Fseconds int32
+}
+
+// NullIntervalDS is a nullable IntervalDS with an explicit Valid flag.
+type NullIntervalDS struct {
+	IntervalDS
+	Valid bool
+}
+
 // Get returns the contents of Data.
 func (d *Data) Get() any {
 	// if logger := getLogger(context.TODO()); logger != nil && logger.Enabled(context.TODO(), slog.LevelDebug) {

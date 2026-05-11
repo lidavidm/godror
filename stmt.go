@@ -1413,11 +1413,18 @@ func (st *statement) bindVarTypeSwitch(ctx context.Context, info *argInfo, get *
 			*get = st.conn.dataGetTime
 		}
 
-	case time.Duration, []time.Duration:
+	case time.Duration, []time.Duration, IntervalDS, []IntervalDS, NullIntervalDS, []NullIntervalDS:
 		info.typ, info.natTyp = C.DPI_ORACLE_TYPE_INTERVAL_DS, C.DPI_NATIVE_TYPE_INTERVAL_DS
 		info.set = st.conn.dataSetIntervalDS
 		if info.isOut {
 			*get = st.conn.dataGetIntervalDS
+		}
+
+	case IntervalYM, []IntervalYM, NullIntervalYM, []NullIntervalYM:
+		info.typ, info.natTyp = C.DPI_ORACLE_TYPE_INTERVAL_YM, C.DPI_NATIVE_TYPE_INTERVAL_YM
+		info.set = st.conn.dataSetIntervalYM
+		if info.isOut {
+			*get = st.conn.dataGetIntervalYM
 		}
 
 	case Object:
@@ -1826,48 +1833,135 @@ func (c *conn) dataSetIntervalDS(ctx context.Context, dv *C.dpiVar, data []C.dpi
 	if vv == nil {
 		return dataSetNull(ctx, dv, data, nil)
 	}
-	times := []time.Duration{0}
+
+	setDS := func(i int, ds IntervalDS) {
+		C.dpiData_setIntervalDS(&data[i],
+			C.int32_t(ds.Days), C.int32_t(ds.Hours), C.int32_t(ds.Minutes),
+			C.int32_t(ds.Seconds), C.int32_t(ds.Fseconds))
+	}
+	durationToDS := func(t time.Duration) IntervalDS {
+		rem := t % (24 * time.Hour)
+		d := int32(t / (24 * time.Hour))
+		t, rem = rem, t%(time.Hour)
+		h := int32(t / time.Hour)
+		t, rem = rem, t%(time.Minute)
+		m := int32(t / time.Minute)
+		t, rem = rem, t%time.Second
+		s := int32(t / time.Second)
+		return IntervalDS{Days: d, Hours: h, Minutes: m, Seconds: s, Fseconds: int32(rem)}
+	}
+
 	switch x := vv.(type) {
 	case time.Duration:
-		times[0] = x
 		data[0].isNull = C.int(b2i(x == 0))
+		if x != 0 {
+			setDS(0, durationToDS(x))
+		}
 
 	case []time.Duration:
-		times = x
-		for i, t := range times {
+		for i, t := range x {
 			data[i].isNull = C.int(b2i(t == 0))
+			if t != 0 {
+				setDS(i, durationToDS(t))
+			}
+		}
+
+	case IntervalDS:
+		data[0].isNull = 0
+		setDS(0, x)
+
+	case []IntervalDS:
+		for i, ds := range x {
+			data[i].isNull = 0
+			setDS(i, ds)
+		}
+
+	case NullIntervalDS:
+		data[0].isNull = C.int(b2i(!x.Valid))
+		if x.Valid {
+			setDS(0, x.IntervalDS)
+		}
+
+	case []NullIntervalDS:
+		for i, nds := range x {
+			data[i].isNull = C.int(b2i(!nds.Valid))
+			if nds.Valid {
+				setDS(i, nds.IntervalDS)
+			}
 		}
 
 	default:
 		for i := range data {
 			data[i].isNull = 1
 		}
-		return nil
 	}
-	logger := getLogger(ctx)
-	if logger != nil && logger.Enabled(ctx, slog.LevelDebug) {
-		logger.Debug("dataSetIntervalDS", "data", data, "times", times)
+	return nil
+}
+
+func (c *conn) dataSetIntervalYM(ctx context.Context, dv *C.dpiVar, data []C.dpiData, vv any) error {
+	if vv == nil {
+		return dataSetNull(ctx, dv, data, nil)
 	}
 
-	for i, t := range times {
-		if data[i].isNull == 1 {
-			continue
+	setYM := func(i int, ym IntervalYM) {
+		C.dpiData_setIntervalYM(&data[i], C.int32_t(ym.Years), C.int32_t(ym.Months))
+	}
+
+	switch x := vv.(type) {
+	case IntervalYM:
+		data[0].isNull = C.int(b2i(x.Years == 0 && x.Months == 0))
+		if x.Years != 0 || x.Months != 0 {
+			setYM(0, x)
 		}
-		rem := t % (24 * time.Hour)
-		d := C.int32_t(t / (24 * time.Hour))
-		t, rem = rem, t%(time.Hour)
-		h := C.int32_t(t / time.Hour)
-		t, rem = rem, t%(time.Minute)
-		m := C.int32_t(t / time.Minute)
-		t, rem = rem, t%time.Second
-		s := C.int32_t(t / time.Second)
-		fs := C.int32_t(rem)
-		if logger != nil && logger.Enabled(ctx, slog.LevelDebug) {
-			logger.Debug("dataSetIntervalDS", "i", i, "t", t, "day", d, "hour", h, "minute", m, "second", s, "fsecond", fs)
+
+	case []IntervalYM:
+		for i, ym := range x {
+			data[i].isNull = C.int(b2i(ym.Years == 0 && ym.Months == 0))
+			if ym.Years != 0 || ym.Months != 0 {
+				setYM(i, ym)
+			}
 		}
-		C.dpiData_setIntervalDS(&data[i], d, h, m, s, fs)
-		if logger != nil && logger.Enabled(ctx, slog.LevelDebug) {
-			logger.Debug("dataSetIntervalDS", "i", i, "t", t, "data", data[i])
+
+	case NullIntervalYM:
+		data[0].isNull = C.int(b2i(!x.Valid))
+		if x.Valid {
+			setYM(0, x.IntervalYM)
+		}
+
+	case []NullIntervalYM:
+		for i, nym := range x {
+			data[i].isNull = C.int(b2i(!nym.Valid))
+			if nym.Valid {
+				setYM(i, nym.IntervalYM)
+			}
+		}
+
+	default:
+		for i := range data {
+			data[i].isNull = 1
+		}
+	}
+	return nil
+}
+
+func (c *conn) dataGetIntervalYM(ctx context.Context, v any, data []C.dpiData) error {
+	switch x := v.(type) {
+	case *IntervalYM:
+		if len(data) == 0 || data[0].isNull == 1 {
+			*x = IntervalYM{}
+		} else {
+			ym := *((*C.dpiIntervalYM)(unsafe.Pointer(&data[0].value)))
+			*x = IntervalYM{Years: int(ym.years), Months: int(ym.months)}
+		}
+	case *[]IntervalYM:
+		*x = (*x)[:0]
+		for i := range data {
+			if data[i].isNull == 1 {
+				*x = append(*x, IntervalYM{})
+			} else {
+				ym := *((*C.dpiIntervalYM)(unsafe.Pointer(&data[i].value)))
+				*x = append(*x, IntervalYM{Years: int(ym.years), Months: int(ym.months)})
+			}
 		}
 	}
 	return nil
