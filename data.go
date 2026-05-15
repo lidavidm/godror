@@ -512,8 +512,22 @@ func (d *Data) Set(v any) error {
 		}
 	case time.Duration:
 		d.SetIntervalDS(x)
+	case IntervalDS:
+		d.reset(false)
+		d.NativeTypeNum = C.DPI_NATIVE_TYPE_INTERVAL_DS
+		C.dpiData_setIntervalDS(&d.dpiData, C.int32_t(x.Days), C.int32_t(x.Hours), C.int32_t(x.Minutes), C.int32_t(x.Seconds), C.int32_t(x.Fseconds))
+	case NullIntervalDS:
+		d.NativeTypeNum = C.DPI_NATIVE_TYPE_INTERVAL_DS
+		if d.dpiData.isNull = C.int(b2i(!x.Valid)); x.Valid {
+			C.dpiData_setIntervalDS(&d.dpiData, C.int32_t(x.Days), C.int32_t(x.Hours), C.int32_t(x.Minutes), C.int32_t(x.Seconds), C.int32_t(x.Fseconds))
+		}
 	case IntervalYM:
 		d.SetIntervalYM(x)
+	case NullIntervalYM:
+		d.NativeTypeNum = C.DPI_NATIVE_TYPE_INTERVAL_YM
+		if d.dpiData.isNull = C.int(b2i(!x.Valid)); x.Valid {
+			C.dpiData_setIntervalYM(&d.dpiData, C.int32_t(x.Years), C.int32_t(x.Months))
+		}
 	case *Lob:
 		b, err := io.ReadAll(x.Reader)
 		if err != nil {
@@ -640,6 +654,10 @@ func (c *conn) newVarInfo(baseType any, sliceLen, bufSize int) (varInfo, error) 
 	case []time.Time, []NullTime:
 		// Maybe vi.Typ should be C.DPI_ORACLE_TYPE_DATE
 		vi.Typ, vi.NatTyp = C.DPI_ORACLE_TYPE_TIMESTAMP_TZ, C.DPI_NATIVE_TYPE_TIMESTAMP
+	case time.Duration, []time.Duration, IntervalDS, []IntervalDS, NullIntervalDS, []NullIntervalDS:
+		vi.Typ, vi.NatTyp = C.DPI_ORACLE_TYPE_INTERVAL_DS, C.DPI_NATIVE_TYPE_INTERVAL_DS
+	case IntervalYM, []IntervalYM, NullIntervalYM, []NullIntervalYM:
+		vi.Typ, vi.NatTyp = C.DPI_ORACLE_TYPE_INTERVAL_YM, C.DPI_NATIVE_TYPE_INTERVAL_YM
 	case ObjectWriter:
 		vi.Typ, vi.NatTyp = C.DPI_ORACLE_TYPE_OBJECT, C.DPI_NATIVE_TYPE_OBJECT
 		ot, err := c.GetObjectType(v.ObjectTypeName())

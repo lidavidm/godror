@@ -1812,6 +1812,54 @@ func (c *conn) dataGetIntervalDS(ctx context.Context, v any, data []C.dpiData) e
 		for i := range data {
 			dataGetIntervalDS(ctx, &((*x)[i]), &data[i])
 		}
+
+	case *IntervalDS:
+		if len(data) == 0 || data[0].isNull == 1 {
+			*x = IntervalDS{}
+		} else {
+			ds := *((*C.dpiIntervalDS)(unsafe.Pointer(&data[0].value)))
+			*x = IntervalDS{Days: int32(ds.days), Hours: int32(ds.hours), Minutes: int32(ds.minutes), Seconds: int32(ds.seconds), Fseconds: int32(ds.fseconds)}
+		}
+
+	case *[]IntervalDS:
+		n := len(data)
+		if cap(*x) >= n {
+			*x = (*x)[:n]
+		} else {
+			*x = make([]IntervalDS, n)
+		}
+		for i := range data {
+			if data[i].isNull == 1 {
+				(*x)[i] = IntervalDS{}
+			} else {
+				ds := *((*C.dpiIntervalDS)(unsafe.Pointer(&data[i].value)))
+				(*x)[i] = IntervalDS{Days: int32(ds.days), Hours: int32(ds.hours), Minutes: int32(ds.minutes), Seconds: int32(ds.seconds), Fseconds: int32(ds.fseconds)}
+			}
+		}
+
+	case *NullIntervalDS:
+		if len(data) == 0 || data[0].isNull == 1 {
+			*x = NullIntervalDS{}
+		} else {
+			ds := *((*C.dpiIntervalDS)(unsafe.Pointer(&data[0].value)))
+			*x = NullIntervalDS{IntervalDS: IntervalDS{Days: int32(ds.days), Hours: int32(ds.hours), Minutes: int32(ds.minutes), Seconds: int32(ds.seconds), Fseconds: int32(ds.fseconds)}, Valid: true}
+		}
+
+	case *[]NullIntervalDS:
+		n := len(data)
+		if cap(*x) >= n {
+			*x = (*x)[:n]
+		} else {
+			*x = make([]NullIntervalDS, n)
+		}
+		for i := range data {
+			if data[i].isNull == 1 {
+				(*x)[i] = NullIntervalDS{}
+			} else {
+				ds := *((*C.dpiIntervalDS)(unsafe.Pointer(&data[i].value)))
+				(*x)[i] = NullIntervalDS{IntervalDS: IntervalDS{Days: int32(ds.days), Hours: int32(ds.hours), Minutes: int32(ds.minutes), Seconds: int32(ds.seconds), Fseconds: int32(ds.fseconds)}, Valid: true}
+			}
+		}
 	}
 	return nil
 }
@@ -1961,6 +2009,30 @@ func (c *conn) dataGetIntervalYM(ctx context.Context, v any, data []C.dpiData) e
 			} else {
 				ym := *((*C.dpiIntervalYM)(unsafe.Pointer(&data[i].value)))
 				*x = append(*x, IntervalYM{Years: int(ym.years), Months: int(ym.months)})
+			}
+		}
+
+	case *NullIntervalYM:
+		if len(data) == 0 || data[0].isNull == 1 {
+			*x = NullIntervalYM{}
+		} else {
+			ym := *((*C.dpiIntervalYM)(unsafe.Pointer(&data[0].value)))
+			*x = NullIntervalYM{IntervalYM: IntervalYM{Years: int(ym.years), Months: int(ym.months)}, Valid: true}
+		}
+
+	case *[]NullIntervalYM:
+		n := len(data)
+		if cap(*x) >= n {
+			*x = (*x)[:n]
+		} else {
+			*x = make([]NullIntervalYM, n)
+		}
+		for i := range data {
+			if data[i].isNull == 1 {
+				(*x)[i] = NullIntervalYM{}
+			} else {
+				ym := *((*C.dpiIntervalYM)(unsafe.Pointer(&data[i].value)))
+				(*x)[i] = NullIntervalYM{IntervalYM: IntervalYM{Years: int(ym.years), Months: int(ym.months)}, Valid: true}
 			}
 		}
 	}
