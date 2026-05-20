@@ -982,6 +982,23 @@ func (st *statement) bindVars(
 			info.isIn, info.isOut = out.In, true
 			value = out.Dest
 		}
+		if op, ok := value.(*OutParam); ok {
+			info.isIn, info.isOut = op.In != nil, true
+			st.dests[i] = op
+			st.gets[i] = dataGetOutParam
+			if op.In != nil {
+				value = op.In
+			} else {
+				value = ""
+			}
+			rv := reflect.ValueOf(value)
+			st.isSlice[i] = false
+			rArgs[i] = rv
+			if rv.IsValid() && rv.Kind() == reflect.Pointer {
+				rArgs[i] = rv.Elem()
+			}
+			continue
+		}
 		st.dests[i] = value
 		rv := reflect.ValueOf(value)
 		if !rv.IsValid() {
@@ -1057,7 +1074,23 @@ func (st *statement) bindVars(
 		value := st.dests[i]
 
 		var err error
-		if value, err = st.bindVarTypeSwitch(ctx, info, &(st.gets[i]), value); err != nil {
+		if op, ok := value.(*OutParam); ok {
+			info.typ = op.OracleType
+			info.natTyp = outParamNativeType(op.OracleType)
+			if info.natTyp == C.DPI_NATIVE_TYPE_BYTES {
+				info.set = dataSetBytes
+				info.bufSize = 32767
+			} else if info.natTyp == C.DPI_NATIVE_TYPE_TIMESTAMP {
+				info.set = st.conn.dataSetTime
+			} else if info.natTyp == C.DPI_NATIVE_TYPE_FLOAT {
+				info.set = dataSetNumber
+			} else {
+				info.set = dataSetNumber
+			}
+			if op.In != nil {
+				value = op.In
+			}
+		} else if value, err = st.bindVarTypeSwitch(ctx, info, &(st.gets[i]), value); err != nil {
 			return fmt.Errorf("%d. arg: %w", i+1, err)
 		}
 
@@ -2515,6 +2548,43 @@ func dataGetBytes(ctx context.Context, v any, data []C.dpiData) error {
 
 	default:
 		return fmt.Errorf("awaited []byte/string/Number, got %T (%#v)", v, v)
+	}
+	return nil
+}
+
+func dataGetOutParam(ctx context.Context, v any, data []C.dpiData) error {
+	op := v.(*OutParam)
+	if len(data) == 0 || data[0].isNull == 1 {
+		op.Result = OutParamResult{IsNull: true}
+		return nil
+	}
+	switch {
+	case isTimestampOracleType(op.OracleType):
+		ts := *((*C.dpiTimestamp)(unsafe.Pointer(&data[0].value)))
+		op.Result = OutParamResult{
+			Timestamp: &OutParamTimestamp{
+				Year:         int16(ts.year),
+				Month:        uint8(ts.month),
+				Day:          uint8(ts.day),
+				Hour:         uint8(ts.hour),
+				Min:          uint8(ts.minute),
+				Sec:          uint8(ts.second),
+				FSec:         uint32(ts.fsecond),
+				TZHourOffset: int8(ts.tzHourOffset),
+				TZMinOffset:  int8(ts.tzMinuteOffset),
+			},
+		}
+	case op.OracleType == C.DPI_ORACLE_TYPE_NATIVE_FLOAT:
+		f := *((*float32)(unsafe.Pointer(&data[0].value)))
+		op.Result = OutParamResult{Float: f}
+	case op.OracleType == C.DPI_ORACLE_TYPE_NATIVE_DOUBLE:
+		d := *((*float64)(unsafe.Pointer(&data[0].value)))
+		op.Result = OutParamResult{Double: d}
+	default:
+		raw := dpiData_getBytes(&data[0])
+		buf := make([]byte, len(raw))
+		copy(buf, raw)
+		op.Result = OutParamResult{Bytes: buf}
 	}
 	return nil
 }
