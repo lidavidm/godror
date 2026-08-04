@@ -2239,28 +2239,37 @@ func TestColumnPrecision(t *testing.T) {
 func TestColumnPrecisionDescribeQuery(t *testing.T) {
 	t.Parallel()
 	testDb.Exec("DROP TABLE test_column_precision_describe_query")
-	if _, err := testDb.Exec(`CREATE TABLE test_column_precision_describe_query (
-            timestamp_s TIMESTAMP(0),
-            timestamp_ms TIMESTAMP(3),
-	    timestamp_us TIMESTAMP(6),
-	    timestamp_ns TIMESTAMP(9),
-            num NUMBER(10)
-	)`); err != nil {
+	_, err := testDb.Exec(`CREATE TABLE test_column_precision_describe_query (
+		timestamp_4 TIMESTAMP(4),
+		timestamp_6 TIMESTAMP(6),
+		timestamp_7 TIMESTAMP(7),
+		timestamp_9 TIMESTAMP(9),
+		timestamp_tz_4 TIMESTAMP(4) WITH TIME ZONE,
+		timestamp_tz_6 TIMESTAMP(6) WITH TIME ZONE,
+		timestamp_tz_7 TIMESTAMP(7) WITH TIME ZONE,
+		timestamp_tz_9 TIMESTAMP(9) WITH TIME ZONE,
+		timestamp_ltz_4 TIMESTAMP(4) WITH LOCAL TIME ZONE,
+		timestamp_ltz_6 TIMESTAMP(6) WITH LOCAL TIME ZONE,
+		timestamp_ltz_7 TIMESTAMP(7) WITH LOCAL TIME ZONE,
+		timestamp_ltz_9 TIMESTAMP(9) WITH LOCAL TIME ZONE,
+		num NUMBER(10)
+	)`)
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer testDb.Exec("DROP TABLE test_column_precision")
+	defer testDb.Exec("DROP TABLE test_column_precision_describe_query")
 
 	cols, err := godror.DescribeQuery(context.Background(), testDb, "SELECT * FROM test_column_precision_describe_query")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cols) != 5 {
-		t.Fatalf("expected 5 columns, got %d", len(cols))
+	expected := []int{4, 6, 7, 9, 4, 6, 7, 9, 4, 6, 7, 9, 10}
+	if len(cols) != len(expected) {
+		t.Fatalf("expected %d columns, got %d", len(expected), len(cols))
 	}
-	expected := []int{0, 3, 6, 9, 10}
 	for i, col := range cols {
 		if col.Precision != expected[i] {
-			t.Fatalf("column %q: expected precision %d, got %d", col.Name, expected[i], col.Precision)
+			t.Errorf("column %q: expected precision %d, got %d", col.Name, expected[i], col.Precision)
 		}
 	}
 }
